@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CyberRobotics | Hardware & Robotics Showcase</title>
+  <meta name="description" content="Explore state-of-the-art open-source hardware, autonomous robotics, custom PCBs, and embedded systems projects.">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="glow-bg"></div>
+
+  <!-- Navigation -->
+  <header class="navbar">
+    <div class="nav-container">
+      <a href="#" class="brand">
+        <div class="brand-icon">
+          <i class="fa-solid fa-microchip"></i>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">CYBER<span class="highlight">ROBOTICS</span></span>
+          <span class="brand-sub">HARDWARE LAB & SHOWCASE</span>
+        </div>
+      </a>
+      <div class="nav-actions">
+        <div class="system-status">
+          <span class="status-dot"></span>
+          <span class="status-text">NODE API ONLINE</span>
+        </div>
+        <button class="btn-primary" id="openSubmitModal">
+          <i class="fa-solid fa-plus"></i> Submit Project
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <canvas id="techCanvas"></canvas>
+    <div class="hero-content">
+      <div class="hero-badge">
+        <i class="fa-solid fa-bolt"></i> OPEN HARDWARE ARCHIVES 2026
+      </div>
+      <h1 class="hero-title">
+        Next-Gen Robotics & <span class="gradient-text">Hardware Showcase</span>
+      </h1>
+      <p class="hero-description">
+        Discover cutting-edge autonomous rovers, custom RISC-V silicon, TinyML bio-sensing prosthetics, and IoT sensors built by hardware engineers worldwide.
+      </p>
+
+      <!-- Stats Bar -->
+      <div class="hero-stats">
+        <div class="stat-card">
+          <div class="stat-icon"><i class="fa-solid fa-robot"></i></div>
+          <div class="stat-info">
+            <span class="stat-number" id="statProjectsCount">6</span>
+            <span class="stat-label">Active Builds</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon"><i class="fa-solid fa-diagram-project"></i></div>
+          <div class="stat-info">
+            <span class="stat-number" id="statCategoriesCount">5</span>
+            <span class="stat-label">Tech Domains</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon"><i class="fa-solid fa-star"></i></div>
+          <div class="stat-info">
+            <span class="stat-number" id="statTotalStars">894</span>
+            <span class="stat-label">Community Stars</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Showcase Container -->
+  <main class="showcase-container">
+    
+    <!-- Control Bar: Search & Category Filters -->
+    <div class="controls-wrapper">
+      <div class="search-box">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input 
+          type="text" 
+          id="searchInput" 
+          placeholder="Search by project name, tech stack (e.g. ROS 2, KiCad, OpenCV)..."
+          autocomplete="off"
+        >
+        <button id="clearSearchBtn" class="clear-btn hidden" title="Clear Search">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="filter-bar" id="filterBar">
+        <button class="filter-chip active" data-category="All">
+          <i class="fa-solid fa-border-all"></i> All Projects
+        </button>
+        <button class="filter-chip" data-category="Autonomous">
+          <i class="fa-solid fa-robot"></i> Autonomous
+        </button>
+        <button class="filter-chip" data-category="Computer Vision">
+          <i class="fa-solid fa-eye"></i> Computer Vision
+        </button>
+        <button class="filter-chip" data-category="Embedded">
+          <i class="fa-solid fa-microchip"></i> Embedded Systems
+        </button>
+        <button class="filter-chip" data-category="IoT">
+          <i class="fa-solid fa-wifi"></i> IoT & Sensors
+        </button>
+        <button class="filter-chip" data-category="AI/ML">
+          <i class="fa-solid fa-brain"></i> AI & TinyML
+        </button>
+      </div>
+    </div>
+
+    <!-- Results Overview Bar -->
+    <div class="results-meta">
+      <div class="meta-count">
+        Showing <span id="resultsCount">0</span> hardware projects
+      </div>
+      <div class="meta-sort">
+        <label for="sortSelect"><i class="fa-solid fa-arrow-down-wide-short"></i> Sort by:</label>
+        <select id="sortSelect" class="custom-select">
+          <option value="stars">Most Popular (Stars)</option>
+          <option value="name">Alphabetical (A-Z)</option>
+          <option value="difficulty">Complexity</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Grid Container for Projects -->
+    <div class="project-grid" id="projectGrid">
+      <!-- Loading Skeleton / Dynamic Cards will be rendered here -->
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+    </div>
+
+    <!-- Empty State -->
+    <div class="empty-state hidden" id="emptyState">
+      <div class="empty-icon"><i class="fa-solid fa-compass-drafting"></i></div>
+      <h3>No Hardware Projects Found</h3>
+      <p>Try refining your search terms or selecting a different category filter.</p>
+      <button class="btn-secondary" id="resetFiltersBtn">
+        <i class="fa-solid fa-rotate-left"></i> Reset All Filters
+      </button>
+    </div>
+  </main>
+
+  <!-- Modal for Project Details & Specs -->
+  <div class="modal-overlay hidden" id="projectModal">
+    <div class="modal-card">
+      <button class="modal-close" id="closeModalBtn">&times;</button>
+      <div class="modal-header" id="modalHeader">
+        <!-- Dynamic header content -->
+      </div>
+      <div class="modal-body" id="modalBody">
+        <!-- Dynamic body specs and components -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn-star" id="modalStarBtn">
+          <i class="fa-solid fa-star"></i> Star Project (<span id="modalStarCount">0</span>)
+        </button>
+        <button class="btn-secondary" id="modalCloseAction">Close Blueprint</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Submitting New Project -->
+  <div class="modal-overlay hidden" id="submitModal">
+    <div class="modal-card">
+      <button class="modal-close" id="closeSubmitModalBtn">&times;</button>
+      <div class="modal-header">
+        <div class="modal-icon-badge"><i class="fa-solid fa-code-branch"></i></div>
+        <h2>Submit Hardware Blueprint</h2>
+        <p>Register your robotics project to the CyberRobotics showcase.</p>
+      </div>
+      <form id="submitProjectForm" class="submit-form">
+        <div class="form-group">
+          <label for="pTitle">Project Title</label>
+          <input type="text" id="pTitle" placeholder="e.g. Quadruped Bionic Dog" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="pCategory">Category</label>
+            <select id="pCategory" class="custom-select" required>
+              <option value="Autonomous">Autonomous</option>
+              <option value="Computer Vision">Computer Vision</option>
+              <option value="Embedded">Embedded Systems</option>
+              <option value="IoT">IoT & Sensors</option>
+              <option value="AI/ML">AI & TinyML</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="pDifficulty">Difficulty</label>
+            <select id="pDifficulty" class="custom-select" required>
+              <option value="Beginner">Beginner</option>
+              <option value="Intermediate">Intermediate</option>
+              <option value="Advanced">Advanced</option>
+              <option value="Expert">Expert</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="pSummary">Brief Summary</label>
+          <input type="text" id="pSummary" placeholder="Short 1-sentence overview of the build" required>
+        </div>
+        <div class="form-group">
+          <label for="pTags">Tech Stack Tags (Comma separated)</label>
+          <input type="text" id="pTags" placeholder="e.g. ROS2, STM32, C++, LiDAR" required>
+        </div>
+        <div class="form-group">
+          <label for="pComponents">Key Components (Comma separated)</label>
+          <input type="text" id="pComponents" placeholder="e.g. NEMA 17 Steppers, ESP32, L298N" required>
+        </div>
+        <button type="submit" class="btn-primary full-width">
+          <i class="fa-solid fa-paper-plane"></i> Publish Blueprint
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-container">
+      <p>&copy; 2026 CyberRobotics Hardware Hub. Powered by Node.js & Express.</p>
+      <div class="footer-tags">
+        <span><i class="fa-solid fa-microchip"></i> KiCad Compatible</span>
+        <span><i class="fa-solid fa-robot"></i> ROS 2 Ecosystem</span>
+        <span><i class="fa-brands fa-github"></i> Open Source</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Script -->
+  <script src="script.js"></script>
+</body>
+</html>
