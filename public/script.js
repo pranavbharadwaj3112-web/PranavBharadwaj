@@ -1,11 +1,11 @@
 /**
  * CYBERROBOTICS HARDWARE SHOWCASE - FRONTEND SCRIPT
- * Handles API fetching, dynamic DOM rendering, searching, category filtering,
- * modal interactions, star updating, and canvas particle animations.
+ * Connects to the Express RESTful API (/api/projects, /api/visitors),
+ * handles visitor tracking, dynamic project fetching, filter/search logic, and modal display.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-  // State Management
+  // App State
   let allProjects = [];
   let currentCategory = 'All';
   let searchQuery = '';
@@ -42,27 +42,69 @@ document.addEventListener('DOMContentLoaded', () => {
   const closeSubmitModalBtn = document.getElementById('closeSubmitModalBtn');
   const submitProjectForm = document.getElementById('submitProjectForm');
 
-  // --- 1. INITIALIZATION & DATA FETCHING ---
+  // --- 0. VISITOR ANALYTICS TRACKING ---
+
+  async function logVisit() {
+    try {
+      await fetch('/api/visitors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ page: window.location.pathname })
+      });
+    } catch (err) {
+      console.warn('Visitor analytics logging skipped:', err);
+    }
+  }
+
+  // --- 1. RESTFUL API FETCH & LOADING / ERROR STATES ---
+
+  function renderSkeletons() {
+    projectGrid.innerHTML = `
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+    `;
+  }
+
+  function renderError(message) {
+    emptyState.classList.add('hidden');
+    projectGrid.innerHTML = `
+      <div style="grid-column: 1/-1; text-align: center; padding: 3rem 1.5rem; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid rgba(255,82,82,0.4);">
+        <div style="font-size: 3rem; color: #ff5252; margin-bottom: 1rem;"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <h3 style="font-size: 1.5rem; margin-bottom: 0.5rem;">API Error Encountered</h3>
+        <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem;">${escapeHTML(message)}</p>
+        <button class="btn-primary" id="retryFetchBtn">
+          <i class="fa-solid fa-rotate-right"></i> Retry Connection
+        </button>
+      </div>
+    `;
+
+    const retryBtn = document.getElementById('retryFetchBtn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', fetchProjects);
+    }
+  }
 
   async function fetchProjects() {
+    renderSkeletons();
+
     try {
       const response = await fetch('/api/projects');
-      if (!response.ok) throw new Error('Failed to load project blueprints.');
-      
-      const data = await response.json();
-      allProjects = data.projects || [];
+      if (!response.ok) {
+        throw new Error(`Server responded with status ${response.status}: ${response.statusText}`);
+      }
 
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to retrieve project list.');
+      }
+
+      allProjects = data.projects || [];
       updateStats();
       applyFiltersAndRender();
     } catch (error) {
-      console.error('API Error:', error);
-      projectGrid.innerHTML = `
-        <div style="grid-column: 1/-1; text-align: center; padding: 3rem; color: #ff5252;">
-          <i class="fa-solid fa-triangle-exclamation" style="font-size: 2.5rem; margin-bottom: 1rem;"></i>
-          <h3>Failed to Connect to Hardware Database</h3>
-          <p style="color: var(--text-muted); font-size: 0.9rem;">${error.message}</p>
-        </div>
-      `;
+      console.error('REST API Error:', error);
+      renderError(error.message || 'Could not connect to the robotics API backend server.');
     }
   }
 
@@ -162,15 +204,13 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       `;
 
-      // Event listener for opening modal
       card.addEventListener('click', (e) => {
-        // If clicking directly on star icon, star without opening modal
         const starBtn = e.target.closest('.star-count');
         if (starBtn) {
           e.stopPropagation();
           handleStarIncrement(project.id);
         } else {
-          openProjectModal(project);
+          openProjectModal(project.id);
         }
       });
 
@@ -178,9 +218,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Helper to escape HTML and prevent XSS
   function escapeHTML(str) {
-    return str.replace(/[&<>'"]/g, 
+    if (!str) return '';
+    return String(str).replace(/[&<>'"]/g, 
       tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
     );
   }
@@ -209,68 +249,74 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // --- 5. MODAL BLUEPRINT INSPECTOR ---
+  // --- 5. MODAL BLUEPRINT INSPECTOR (GET /api/projects/:id) ---
 
-  function openProjectModal(project) {
-    activeProject = project;
+  async function openProjectModal(projectId) {
+    try {
+      const res = await fetch(`/api/projects/${projectId}`);
+      if (!res.ok) throw new Error('Failed to load project details');
+      const data = await res.json();
 
-    const difficultyClass = project.difficulty ? project.difficulty.toLowerCase() : 'beginner';
+      const project = data.project;
+      activeProject = project;
+      const difficultyClass = project.difficulty ? project.difficulty.toLowerCase() : 'beginner';
 
-    modalHeader.innerHTML = `
-      <div class="modal-icon-badge">
-        <i class="fa-solid ${project.icon || 'fa-microchip'}"></i>
-      </div>
-      <div class="modal-title-row">
-        <h2>${escapeHTML(project.title)}</h2>
-        <span class="badge-difficulty ${difficultyClass}">${project.difficulty}</span>
-      </div>
-      <p style="color: var(--primary-cyan); font-family: var(--font-code); font-size: 0.8rem;">
-        <i class="fa-solid fa-circle-check"></i> Status: ${escapeHTML(project.status || 'Active')}
-      </p>
-    `;
+      modalHeader.innerHTML = `
+        <div class="modal-icon-badge">
+          <i class="fa-solid ${project.icon || 'fa-microchip'}"></i>
+        </div>
+        <div class="modal-title-row">
+          <h2>${escapeHTML(project.title)}</h2>
+          <span class="badge-difficulty ${difficultyClass}">${project.difficulty}</span>
+        </div>
+        <p style="color: var(--primary-cyan); font-family: var(--font-code); font-size: 0.8rem;">
+          <i class="fa-solid fa-circle-check"></i> Status: ${escapeHTML(project.status || 'Active')}
+        </p>
+      `;
 
-    // Render Specs Grid if available
-    let specsHTML = '';
-    if (project.specs) {
-      specsHTML = `
-        <div class="specs-section-title"><i class="fa-solid fa-sliders"></i> Hardware Performance Specs</div>
-        <div class="specs-grid">
-          ${Object.entries(project.specs).map(([key, val]) => `
-            <div class="spec-box">
-              <span class="spec-key">${escapeHTML(key)}</span>
-              <span class="spec-val">${escapeHTML(val)}</span>
-            </div>
-          `).join('')}
+      let specsHTML = '';
+      if (project.specs) {
+        specsHTML = `
+          <div class="specs-section-title"><i class="fa-solid fa-sliders"></i> Hardware Performance Specs</div>
+          <div class="specs-grid">
+            ${Object.entries(project.specs).map(([key, val]) => `
+              <div class="spec-box">
+                <span class="spec-key">${escapeHTML(key)}</span>
+                <span class="spec-val">${escapeHTML(val)}</span>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      let componentsHTML = '';
+      if (project.components && project.components.length > 0) {
+        componentsHTML = `
+          <div class="specs-section-title"><i class="fa-solid fa-list-check"></i> Bill of Materials (BOM)</div>
+          <ul class="components-list">
+            ${project.components.map(comp => `
+              <li><i class="fa-solid fa-angle-right"></i> ${escapeHTML(comp)}</li>
+            `).join('')}
+          </ul>
+        `;
+      }
+
+      modalBody.innerHTML = `
+        <p class="modal-description">${escapeHTML(project.description)}</p>
+        ${specsHTML}
+        ${componentsHTML}
+        <div class="specs-section-title"><i class="fa-solid fa-tags"></i> Stack & Frameworks</div>
+        <div class="card-tags" style="margin-bottom: 1rem;">
+          ${project.tags.map(t => `<span class="tag-pill">${escapeHTML(t)}</span>`).join('')}
         </div>
       `;
+
+      modalStarCount.textContent = project.stars;
+      projectModal.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+    } catch (err) {
+      showToast('Could not fetch project blueprint details.', 'warning');
     }
-
-    // Render Components List (BOM)
-    let componentsHTML = '';
-    if (project.components && project.components.length > 0) {
-      componentsHTML = `
-        <div class="specs-section-title"><i class="fa-solid fa-list-check"></i> Bill of Materials (BOM)</div>
-        <ul class="components-list">
-          ${project.components.map(comp => `
-            <li><i class="fa-solid fa-angle-right"></i> ${escapeHTML(comp)}</li>
-          `).join('')}
-        </ul>
-      `;
-    }
-
-    modalBody.innerHTML = `
-      <p class="modal-description">${escapeHTML(project.description)}</p>
-      ${specsHTML}
-      ${componentsHTML}
-      <div class="specs-section-title"><i class="fa-solid fa-tags"></i> Stack & Frameworks</div>
-      <div class="card-tags" style="margin-bottom: 1rem;">
-        ${project.tags.map(t => `<span class="tag-pill">${escapeHTML(t)}</span>`).join('')}
-      </div>
-    `;
-
-    modalStarCount.textContent = project.stars;
-    projectModal.classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
   }
 
   function closeModal() {
@@ -291,7 +337,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // --- 6. SUBMIT NEW PROJECT BLUEPRINT FORM ---
+  // --- 6. SUBMIT NEW PROJECT BLUEPRINT FORM (POST /api/projects) ---
 
   openSubmitModal.addEventListener('click', () => {
     submitModal.classList.remove('hidden');
@@ -310,7 +356,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  submitProjectForm.addEventListener('submit', (e) => {
+  submitProjectForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     const title = document.getElementById('pTitle').value.trim();
@@ -323,34 +369,41 @@ document.addEventListener('DOMContentLoaded', () => {
     const tags = tagsStr.split(',').map(s => s.trim()).filter(Boolean);
     const components = compStr.split(',').map(s => s.trim()).filter(Boolean);
 
-    const newProject = {
-      id: 'custom-' + Date.now(),
+    const payload = {
       title,
       category,
       difficulty,
       summary,
       description: summary + ' Engineered with open hardware principles and high performance modular architecture.',
       tags: tags.length ? tags : ['Hardware', 'Open-Source'],
-      components: components.length ? components : ['Custom Microcontroller'],
-      stars: 1,
-      status: 'Community Submission',
-      icon: category === 'Autonomous' ? 'fa-robot' : category === 'Computer Vision' ? 'fa-eye' : 'fa-microchip',
-      gradient: 'linear-gradient(135deg, #00f2fe 0%, #9d4edd 100%)',
-      specs: {
-        submitted: 'Just Now',
-        license: 'CC BY-SA 4.0'
-      }
+      components: components.length ? components : ['Custom Microcontroller']
     };
 
-    allProjects.unshift(newProject);
-    updateStats();
-    applyFiltersAndRender();
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-    submitProjectForm.reset();
-    submitModal.classList.add('hidden');
-    document.body.style.overflow = '';
+      const data = await res.json();
 
-    showToast(`Published "${title}" to Showcase!`);
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Validation failed or server error');
+      }
+
+      allProjects.unshift(data.project);
+      updateStats();
+      applyFiltersAndRender();
+
+      submitProjectForm.reset();
+      submitModal.classList.add('hidden');
+      document.body.style.overflow = '';
+
+      showToast(`Published "${data.project.title}" to API backend!`);
+    } catch (err) {
+      showToast(err.message || 'Failed to publish project', 'warning');
+    }
   });
 
   // --- 7. EVENT LISTENERS & SEARCH INPUT ---
@@ -404,7 +457,6 @@ document.addEventListener('DOMContentLoaded', () => {
     applyFiltersAndRender();
   });
 
-  // Keyboard shortcut: Esc closes modal
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closeModal();
@@ -436,7 +488,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 3000);
   }
 
-  // --- 9. HERO CIRCUIT CANVAS PARTICLES ANIMATION ---
+  // --- 9. HERO CANVAS PARTICLES ANIMATION ---
 
   function initTechCanvas() {
     const canvas = document.getElementById('techCanvas');
@@ -467,7 +519,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function animate() {
       ctx.clearRect(0, 0, width, height);
 
-      // Draw connections
       for (let i = 0; i < numNodes; i++) {
         for (let j = i + 1; j < numNodes; j++) {
           const dx = nodes[i].x - nodes[j].x;
@@ -485,7 +536,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
-      // Draw and update nodes
       nodes.forEach(node => {
         node.x += node.vx;
         node.y += node.vy;
@@ -505,7 +555,8 @@ document.addEventListener('DOMContentLoaded', () => {
     animate();
   }
 
-  // --- RUN INITIALIZERS ---
+  // --- INITIALIZE ---
+  logVisit();
   fetchProjects();
   initTechCanvas();
 });

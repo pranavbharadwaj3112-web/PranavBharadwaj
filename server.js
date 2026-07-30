@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
+const mongoose = require('mongoose');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,9 +10,32 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Serve static assets from 'public' directory (falls back to root if needed)
+// Serve static assets from 'public' directory & root
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
+
+// MongoDB Atlas Connection Setup
+const MONGODB_URI = process.env.MONGODB_URI;
+
+if (MONGODB_URI) {
+  mongoose.connect(MONGODB_URI)
+    .then(() => console.log('Successfully connected to MongoDB Atlas'))
+    .catch(err => console.error('MongoDB connection error:', err));
+} else {
+  console.log('Notice: MONGODB_URI environment variable not provided. Local fallback storage activated.');
+}
+
+// Define Visitor Schema & Model
+const visitorSchema = new mongoose.Schema({
+  timestamp: { type: Date, default: Date.now },
+  userAgent: { type: String, default: 'Unknown' },
+  page: { type: String, default: '/' }
+});
+
+const Visitor = mongoose.model('Visitor', visitorSchema);
+
+// In-memory fallback storage when database is offline/local
+let inMemoryVisitors = [];
 
 // Serve index.html on root route
 app.get('/', (req, res) => {
@@ -150,6 +174,8 @@ let projects = [
   }
 ];
 
+// --- PROJECTS REST API ENDPOINTS ---
+
 // GET /api/projects - Return full list of projects
 app.get('/api/projects', (req, res) => {
   const { category, search } = req.query;
@@ -228,6 +254,66 @@ app.post('/api/projects/:id/like', (req, res) => {
   }
   project.stars += 1;
   res.json({ success: true, stars: project.stars });
+});
+
+// --- VISITOR ANALYTICS REST API ENDPOINTS ---
+
+// POST /api/visitors - Log a new visitor hit
+app.post('/api/visitors', async (req, res) => {
+  try {
+    const userAgent = req.headers['user-agent'] || 'Unknown';
+    const page = (req.body && req.body.page) ? req.body.page : '/';
+
+    if (mongoose.connection.readyState === 1) {
+      const visitor = new Visitor({ userAgent, page });
+      await visitor.save();
+      return res.status(201).json({
+        success: true,
+        message: 'Visit logged to MongoDB',
+        visitor
+      });
+    } else {
+      const visitor = {
+        _id: 'local-' + Date.now(),
+        timestamp: new Date(),
+        userAgent,
+        page
+      };
+      inMemoryVisitors.unshift(visitor);
+      return res.status(201).json({
+        success: true,
+        message: 'Visit logged (local memory)',
+        visitor
+      });
+    }
+  } catch (err) {
+    console.error('Error logging visitor:', err);
+    res.status(500).json({ success: false, message: 'Failed to log visit' });
+  }
+});
+
+// GET /api/visitors/stats - Fetch analytics stats & last 10 visits
+app.get('/api/visitors/stats', async (req, res) => {
+  try {
+    if (mongoose.connection.readyState === 1) {
+      const totalVisits = await Visitor.countDocuments();
+      const last10Visits = await Visitor.find().sort({ timestamp: -1 }).limit(10);
+      return res.json({
+        success: true,
+        totalVisits,
+        last10Visits
+      });
+    } else {
+      return res.json({
+        success: true,
+        totalVisits: inMemoryVisitors.length,
+        last10Visits: inMemoryVisitors.slice(0, 10)
+      });
+    }
+  } catch (err) {
+    console.error('Error fetching visitor stats:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch visitor stats' });
+  }
 });
 
 // Start Express server

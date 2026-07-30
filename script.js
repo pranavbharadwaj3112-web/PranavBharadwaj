@@ -1,7 +1,7 @@
 /**
  * CYBERROBOTICS HARDWARE SHOWCASE - FRONTEND SCRIPT
- * Dynamically connects to the Express RESTful API (/api/projects),
- * handles loading/error states, client-side filtering, modal inspection, and project submissions.
+ * Connects to the Express RESTful API (/api/projects, /api/visitors),
+ * handles visitor tracking, dynamic project fetching, filter/search logic, and modal display.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -41,6 +41,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const openSubmitModal = document.getElementById('openSubmitModal');
   const closeSubmitModalBtn = document.getElementById('closeSubmitModalBtn');
   const submitProjectForm = document.getElementById('submitProjectForm');
+
+  // --- 0. VISITOR ANALYTICS TRACKING ---
+
+  async function logVisit() {
+    try {
+      await fetch('/api/visitors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ page: window.location.pathname })
+      });
+    } catch (err) {
+      console.warn('Visitor analytics logging skipped:', err);
+    }
+  }
 
   // --- 1. RESTFUL API FETCH & LOADING / ERROR STATES ---
 
@@ -190,7 +204,6 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       `;
 
-      // Event listener for opening modal or starring
       card.addEventListener('click', (e) => {
         const starBtn = e.target.closest('.star-count');
         if (starBtn) {
@@ -542,7 +555,8 @@ document.addEventListener('DOMContentLoaded', () => {
     animate();
   }
 
-  // INITIALIZE
+  // --- INITIALIZE ---
+  logVisit();
   fetchProjects();
   initTechCanvas();
 });
