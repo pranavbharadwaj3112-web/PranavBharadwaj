@@ -4,19 +4,30 @@ const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.use(express.static(__dirname));
 
-// 2. Serve index.html when visiting the homepage
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
-
+// Enable JSON parser and CORS middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
 
-// In-memory data store for robotics projects
-const projects = [
+// Serve static assets from 'public' directory (falls back to root if needed)
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
+
+// Serve index.html on root route
+app.get('/', (req, res) => {
+  const publicIndexPath = path.join(__dirname, 'public', 'index.html');
+  const rootIndexPath = path.join(__dirname, 'index.html');
+  
+  const fs = require('fs');
+  if (fs.existsSync(publicIndexPath)) {
+    return res.sendFile(publicIndexPath);
+  } else {
+    return res.sendFile(rootIndexPath);
+  }
+});
+
+// Initial projects database
+let projects = [
   {
     id: 'hexapod-rover',
     title: 'Autonomous Hexapod Rover',
@@ -139,7 +150,7 @@ const projects = [
   }
 ];
 
-// GET all projects (supports optional search and category filters)
+// GET /api/projects - Return full list of projects
 app.get('/api/projects', (req, res) => {
   const { category, search } = req.query;
   let filtered = [...projects];
@@ -164,7 +175,7 @@ app.get('/api/projects', (req, res) => {
   });
 });
 
-// GET single project by ID
+// GET /api/projects/:id - Return details for a single project by ID
 app.get('/api/projects/:id', (req, res) => {
   const project = projects.find(p => p.id === req.params.id);
   if (!project) {
@@ -173,7 +184,43 @@ app.get('/api/projects/:id', (req, res) => {
   res.json({ success: true, project });
 });
 
-// POST to increment star/like count for a project
+// POST /api/projects - Allow adding a new project
+app.post('/api/projects', (req, res) => {
+  const { title, category, description, summary, difficulty, tags, components, specs, icon, gradient } = req.body;
+
+  // Validation: ensure title, category, and description are provided
+  if (!title || !category || !description) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation Error: "title", "category", and "description" are required fields.'
+    });
+  }
+
+  const newProject = {
+    id: req.body.id || 'proj-' + Date.now(),
+    title: title.trim(),
+    category: category.trim(),
+    difficulty: difficulty || 'Intermediate',
+    summary: summary ? summary.trim() : description.trim(),
+    description: description.trim(),
+    tags: Array.isArray(tags) ? tags : (tags ? tags.split(',').map(t => t.trim()) : ['Hardware']),
+    components: Array.isArray(components) ? components : (components ? components.split(',').map(c => c.trim()) : ['Custom Component']),
+    stars: 1,
+    status: req.body.status || 'Active Build',
+    icon: icon || (category === 'Autonomous' ? 'fa-robot' : category === 'Computer Vision' ? 'fa-eye' : 'fa-microchip'),
+    gradient: gradient || 'linear-gradient(135deg, #00f2fe 0%, #9d4edd 100%)',
+    specs: specs || { submitted: 'Just Now', license: 'CC BY-SA 4.0' }
+  };
+
+  projects.unshift(newProject);
+  res.status(201).json({
+    success: true,
+    message: 'Project created successfully',
+    project: newProject
+  });
+});
+
+// POST /api/projects/:id/like - Star/like endpoint
 app.post('/api/projects/:id/like', (req, res) => {
   const project = projects.find(p => p.id === req.params.id);
   if (!project) {
@@ -183,6 +230,7 @@ app.post('/api/projects/:id/like', (req, res) => {
   res.json({ success: true, stars: project.stars });
 });
 
+// Start Express server
 app.listen(PORT, () => {
-  console.log(`Robotics Showcase server running on http://localhost:${PORT}`);
+  console.log(`Robotics Showcase API server listening on port ${PORT}`);
 });
