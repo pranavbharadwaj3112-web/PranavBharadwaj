@@ -19,13 +19,18 @@ const MONGODB_URI = process.env.MONGODB_URI;
 
 if (MONGODB_URI) {
   mongoose.connect(MONGODB_URI)
-    .then(() => console.log('Successfully connected to MongoDB Atlas'))
+    .then(async () => {
+      console.log('Successfully connected to MongoDB Atlas');
+      await seedDefaultProjectsIfNeeded();
+    })
     .catch(err => console.error('MongoDB connection error:', err));
 } else {
-  console.log('Notice: MONGODB_URI environment variable not provided. Local fallback storage activated.');
+  console.log('Notice: MONGODB_URI environment variable not provided. Operating in local memory mode.');
 }
 
-// Define Visitor Schema & Model
+// --- MONGOOSE SCHEMAS & MODELS ---
+
+// Visitor Analytics Schema & Model
 const visitorSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now },
   userAgent: { type: String, default: 'Unknown' },
@@ -34,24 +39,28 @@ const visitorSchema = new mongoose.Schema({
 
 const Visitor = mongoose.model('Visitor', visitorSchema);
 
-// In-memory fallback storage when database is offline/local
-let inMemoryVisitors = [];
-
-// Serve index.html on root route
-app.get('/', (req, res) => {
-  const publicIndexPath = path.join(__dirname, 'public', 'index.html');
-  const rootIndexPath = path.join(__dirname, 'index.html');
-  
-  const fs = require('fs');
-  if (fs.existsSync(publicIndexPath)) {
-    return res.sendFile(publicIndexPath);
-  } else {
-    return res.sendFile(rootIndexPath);
-  }
+// Project Schema & Model
+const projectSchema = new mongoose.Schema({
+  id: { type: String, index: true },
+  title: { type: String, required: true, trim: true },
+  category: { type: String, required: true, trim: true },
+  difficulty: { type: String, default: 'Intermediate' },
+  summary: { type: String, trim: true },
+  description: { type: String, required: true, trim: true },
+  tags: { type: [String], default: [] },
+  components: { type: [String], default: [] },
+  stars: { type: Number, default: 0 },
+  status: { type: String, default: 'Active Build' },
+  icon: { type: String, default: 'fa-microchip' },
+  gradient: { type: String, default: 'linear-gradient(135deg, #00f2fe 0%, #4facfe 100%)' },
+  specs: { type: mongoose.Schema.Types.Mixed, default: {} },
+  createdAt: { type: Date, default: Date.now }
 });
 
-// Initial projects database
-let projects = [
+const Project = mongoose.model('Project', projectSchema);
+
+// Default initial sample projects
+const defaultSampleProjects = [
   {
     id: 'hexapod-rover',
     title: 'Autonomous Hexapod Rover',
@@ -174,86 +183,214 @@ let projects = [
   }
 ];
 
+// Fallback in-memory arrays when MongoDB is offline
+let inMemoryProjects = [...defaultSampleProjects];
+let inMemoryVisitors = [];
+
+// Seed sample projects if MongoDB collection is empty
+async function seedDefaultProjectsIfNeeded() {
+  try {
+    const count = await Project.countDocuments();
+    if (count === 0) {
+      console.log('Seeding initial sample projects to MongoDB Atlas...');
+      await Project.insertMany(defaultSampleProjects);
+      console.log('Sample projects successfully seeded.');
+    }
+  } catch (err) {
+    console.error('Error seeding initial projects:', err);
+  }
+}
+
+// Serve index.html on root route
+app.get('/', (req, res) => {
+  const publicIndexPath = path.join(__dirname, 'public', 'index.html');
+  const rootIndexPath = path.join(__dirname, 'index.html');
+  
+  const fs = require('fs');
+  if (fs.existsSync(publicIndexPath)) {
+    return res.sendFile(publicIndexPath);
+  } else {
+    return res.sendFile(rootIndexPath);
+  }
+});
+
 // --- PROJECTS REST API ENDPOINTS ---
 
-// GET /api/projects - Return full list of projects
-app.get('/api/projects', (req, res) => {
-  const { category, search } = req.query;
-  let filtered = [...projects];
+// GET /api/projects - Return list of projects from MongoDB or fallback
+app.get('/api/projects', async (req, res) => {
+  try {
+    const { category, search } = req.query;
 
-  if (category && category !== 'All') {
-    filtered = filtered.filter(p => p.category.toLowerCase() === category.toLowerCase());
+    if (mongoose.connection.readyState === 1) {
+      let queryFilter = {};
+
+      if (category && category !== 'All') {
+        queryFilter.category = new RegExp(`^${category}$`, 'i');
+      }
+
+      if (search) {
+        const searchRegex = new RegExp(search, 'i');
+        queryFilter.$or = [
+          { title: searchRegex },
+          { summary: searchRegex },
+          { description: searchRegex },
+          { tags: searchRegex }
+        ];
+      }
+
+      const dbProjects = await Project.find(queryFilter).sort({ createdAt: -1 });
+
+      return res.json({
+        success: true,
+        count: dbProjects.length,
+        projects: dbProjects
+      });
+    } else {
+      let filtered = [...inMemoryProjects];
+
+      if (category && category !== 'All') {
+        filtered = filtered.filter(p => p.category.toLowerCase() === category.toLowerCase());
+      }
+
+      if (search) {
+        const q = search.toLowerCase();
+        filtered = filtered.filter(p => 
+          p.title.toLowerCase().includes(q) ||
+          p.summary.toLowerCase().includes(q) ||
+          p.tags.some(t => t.toLowerCase().includes(q))
+        );
+      }
+
+      return res.json({
+        success: true,
+        count: filtered.length,
+        projects: filtered
+      });
+    }
+  } catch (err) {
+    console.error('Error fetching projects:', err);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve projects from database' });
   }
-
-  if (search) {
-    const q = search.toLowerCase();
-    filtered = filtered.filter(p => 
-      p.title.toLowerCase().includes(q) ||
-      p.summary.toLowerCase().includes(q) ||
-      p.tags.some(t => t.toLowerCase().includes(q))
-    );
-  }
-
-  res.json({
-    success: true,
-    count: filtered.length,
-    projects: filtered
-  });
 });
 
-// GET /api/projects/:id - Return details for a single project by ID
-app.get('/api/projects/:id', (req, res) => {
-  const project = projects.find(p => p.id === req.params.id);
-  if (!project) {
-    return res.status(404).json({ success: false, message: 'Project not found' });
+// GET /api/projects/:id - Return single project details by ID
+app.get('/api/projects/:id', async (req, res) => {
+  try {
+    const targetId = req.params.id;
+
+    if (mongoose.connection.readyState === 1) {
+      const isObjectId = mongoose.Types.ObjectId.isValid(targetId);
+      const query = isObjectId 
+        ? { $or: [{ id: targetId }, { _id: targetId }] }
+        : { id: targetId };
+
+      const project = await Project.findOne(query);
+
+      if (!project) {
+        return res.status(404).json({ success: false, message: 'Project not found' });
+      }
+
+      return res.json({ success: true, project });
+    } else {
+      const project = inMemoryProjects.find(p => p.id === targetId || p._id === targetId);
+      if (!project) {
+        return res.status(404).json({ success: false, message: 'Project not found' });
+      }
+      return res.json({ success: true, project });
+    }
+  } catch (err) {
+    console.error('Error fetching project by ID:', err);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve project details' });
   }
-  res.json({ success: true, project });
 });
 
-// POST /api/projects - Allow adding a new project
-app.post('/api/projects', (req, res) => {
-  const { title, category, description, summary, difficulty, tags, components, specs, icon, gradient } = req.body;
+// POST /api/projects - Add a new project permanently to MongoDB Atlas
+app.post('/api/projects', async (req, res) => {
+  try {
+    const { title, category, description, summary, difficulty, tags, components, specs, icon, gradient } = req.body;
 
-  // Validation: ensure title, category, and description are provided
-  if (!title || !category || !description) {
-    return res.status(400).json({
-      success: false,
-      message: 'Validation Error: "title", "category", and "description" are required fields.'
-    });
+    // Validation: ensure title, category, and description are provided
+    if (!title || !category || !description) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation Error: "title", "category", and "description" are required fields.'
+      });
+    }
+
+    const projectData = {
+      id: req.body.id || 'proj-' + Date.now(),
+      title: title.trim(),
+      category: category.trim(),
+      difficulty: difficulty || 'Intermediate',
+      summary: summary ? summary.trim() : description.trim(),
+      description: description.trim(),
+      tags: Array.isArray(tags) ? tags : (tags ? tags.split(',').map(t => t.trim()) : ['Hardware']),
+      components: Array.isArray(components) ? components : (components ? components.split(',').map(c => c.trim()) : ['Custom Component']),
+      stars: req.body.stars || 1,
+      status: req.body.status || 'Active Build',
+      icon: icon || (category === 'Autonomous' ? 'fa-robot' : category === 'Computer Vision' ? 'fa-eye' : 'fa-microchip'),
+      gradient: gradient || 'linear-gradient(135deg, #00f2fe 0%, #9d4edd 100%)',
+      specs: specs || { submitted: 'Just Now', license: 'CC BY-SA 4.0' }
+    };
+
+    if (mongoose.connection.readyState === 1) {
+      const newProject = new Project(projectData);
+      const savedProject = await newProject.save();
+
+      return res.status(201).json({
+        success: true,
+        message: 'Project created and saved to MongoDB Atlas',
+        project: savedProject
+      });
+    } else {
+      inMemoryProjects.unshift(projectData);
+
+      return res.status(201).json({
+        success: true,
+        message: 'Project created (local memory mode)',
+        project: projectData
+      });
+    }
+  } catch (err) {
+    console.error('Error creating project:', err);
+    return res.status(500).json({ success: false, message: 'Failed to save project to database' });
   }
-
-  const newProject = {
-    id: req.body.id || 'proj-' + Date.now(),
-    title: title.trim(),
-    category: category.trim(),
-    difficulty: difficulty || 'Intermediate',
-    summary: summary ? summary.trim() : description.trim(),
-    description: description.trim(),
-    tags: Array.isArray(tags) ? tags : (tags ? tags.split(',').map(t => t.trim()) : ['Hardware']),
-    components: Array.isArray(components) ? components : (components ? components.split(',').map(c => c.trim()) : ['Custom Component']),
-    stars: 1,
-    status: req.body.status || 'Active Build',
-    icon: icon || (category === 'Autonomous' ? 'fa-robot' : category === 'Computer Vision' ? 'fa-eye' : 'fa-microchip'),
-    gradient: gradient || 'linear-gradient(135deg, #00f2fe 0%, #9d4edd 100%)',
-    specs: specs || { submitted: 'Just Now', license: 'CC BY-SA 4.0' }
-  };
-
-  projects.unshift(newProject);
-  res.status(201).json({
-    success: true,
-    message: 'Project created successfully',
-    project: newProject
-  });
 });
 
 // POST /api/projects/:id/like - Star/like endpoint
-app.post('/api/projects/:id/like', (req, res) => {
-  const project = projects.find(p => p.id === req.params.id);
-  if (!project) {
-    return res.status(404).json({ success: false, message: 'Project not found' });
+app.post('/api/projects/:id/like', async (req, res) => {
+  try {
+    const targetId = req.params.id;
+
+    if (mongoose.connection.readyState === 1) {
+      const isObjectId = mongoose.Types.ObjectId.isValid(targetId);
+      const query = isObjectId 
+        ? { $or: [{ id: targetId }, { _id: targetId }] }
+        : { id: targetId };
+
+      const project = await Project.findOneAndUpdate(
+        query,
+        { $inc: { stars: 1 } },
+        { new: true }
+      );
+
+      if (!project) {
+        return res.status(404).json({ success: false, message: 'Project not found' });
+      }
+
+      return res.json({ success: true, stars: project.stars });
+    } else {
+      const project = inMemoryProjects.find(p => p.id === targetId || p._id === targetId);
+      if (!project) {
+        return res.status(404).json({ success: false, message: 'Project not found' });
+      }
+      project.stars += 1;
+      return res.json({ success: true, stars: project.stars });
+    }
+  } catch (err) {
+    console.error('Error updating project stars:', err);
+    return res.status(500).json({ success: false, message: 'Failed to update star count' });
   }
-  project.stars += 1;
-  res.json({ success: true, stars: project.stars });
 });
 
 // --- VISITOR ANALYTICS REST API ENDPOINTS ---
@@ -288,7 +425,7 @@ app.post('/api/visitors', async (req, res) => {
     }
   } catch (err) {
     console.error('Error logging visitor:', err);
-    res.status(500).json({ success: false, message: 'Failed to log visit' });
+    return res.status(500).json({ success: false, message: 'Failed to log visit' });
   }
 });
 
@@ -312,7 +449,7 @@ app.get('/api/visitors/stats', async (req, res) => {
     }
   } catch (err) {
     console.error('Error fetching visitor stats:', err);
-    res.status(500).json({ success: false, message: 'Failed to fetch visitor stats' });
+    return res.status(500).json({ success: false, message: 'Failed to fetch visitor stats' });
   }
 });
 
